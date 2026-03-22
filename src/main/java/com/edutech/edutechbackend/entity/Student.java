@@ -39,6 +39,11 @@ public class Student {
     @Column(nullable = false)
     private Gender gender;
 
+    // Add to Student.java
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Role role = Role.STUDENT; // default
+
     // ── FIELD: Date of Birth ────────────────────────────────────────
     @Column(nullable = false)
     private LocalDate dateOfBirth;

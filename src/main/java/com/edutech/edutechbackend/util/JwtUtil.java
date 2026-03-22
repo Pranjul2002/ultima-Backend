@@ -26,9 +26,10 @@ public class JwtUtil {
 
     // ─── GENERATE token ──────────────────────────────────────────────────────
     // called after successful login/register
-    public String generateToken(String email) {
+    public String generateToken(String email, String role) {
         return Jwts.builder()
                 .subject(email)                          // who this token belongs to
+                .claim("role", role)
                 .issuedAt(new Date())                    // when it was created
                 .expiration(new Date(System.currentTimeMillis() + expiration)) // when it expires
                 .signWith(getSigningKey())               // sign it with our secret
@@ -39,6 +40,11 @@ public class JwtUtil {
     // called on every protected request to know who is making the request
     public String extractEmail(String token) {
         return extractAllClaims(token).getSubject();
+    }
+
+    // ─── EXTRACT role from token ──────────────────────────────────────────────
+    public String extractRole(String token) {
+        return extractAllClaims(token).get("role", String.class);
     }
 
     // ─── VALIDATE token ───────────────────────────────────────────────────────

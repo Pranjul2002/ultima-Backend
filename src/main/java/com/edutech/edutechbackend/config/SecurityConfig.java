@@ -212,6 +212,8 @@ public class SecurityConfig {
                                 //   /api/auth/register → open ✅
                                 //   /api/auth/login    → open ✅
                                 //   /api/auth/refresh  → open ✅ (when we add it)
+                                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                                .requestMatchers("/api/students/**").hasAnyRole("STUDENT", "ADMIN")
 
                                 .anyRequest().authenticated()
                         //  ↑            ↑

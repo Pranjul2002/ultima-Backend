@@ -2,6 +2,7 @@ package com.edutech.edutechbackend.dto;
 
 
 import com.edutech.edutechbackend.entity.Gender;
+import com.edutech.edutechbackend.entity.Role;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -20,6 +21,9 @@ public class RegisterRequestDTO {
     @NotBlank(message = "Password is required")
     @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
+
+    @NotNull
+    private Role role = Role.STUDENT;
 
 
     // ── FIELD: Gender ───────────────────────────────────────────────
