@@ -15,4 +15,7 @@ public interface TestAttemptRepository extends JpaRepository<TestAttempt, Long> 
     List<TestAttempt> findByStudentOrderBySubmittedAtDesc(User student);
 
     void deleteByStudentAndTest(User student, Test test);
+
+    /** Used by DataInitializer to wipe attempts before deleting old seed tests. */
+    void deleteByTest(Test test);
 }
