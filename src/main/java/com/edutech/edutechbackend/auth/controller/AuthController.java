@@ -33,27 +33,30 @@ public class AuthController {
     ) {
         String token = authService.login(request);
 
-        String cookie = "jwt=" + token +
-                "; HttpOnly" +
-                "; Path=/" +
-                "; Max-Age=86400" +
-                "; SameSite=Strict";
+        // SameSite=None + Secure is REQUIRED for cross-origin cookies
+        // Your frontend is on Vercel (https) and backend on Render (https)
+        // Without this the browser will BLOCK the cookie completely
+        String cookie = "jwt=" + token
+                + "; HttpOnly"
+                + "; Path=/"
+                + "; Max-Age=86400"
+                + "; SameSite=None"
+                + "; Secure";
 
         response.setHeader("Set-Cookie", cookie);
-
         return ResponseEntity.ok(Map.of("message", "Login successful"));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpServletResponse response) {
-        String cookie = "jwt=;" +
-                " HttpOnly;" +
-                " Path=/;" +
-                " Max-Age=0;" +
-                " SameSite=Strict";
+        String cookie = "jwt="
+                + "; HttpOnly"
+                + "; Path=/"
+                + "; Max-Age=0"
+                + "; SameSite=None"
+                + "; Secure";
 
         response.setHeader("Set-Cookie", cookie);
-
         return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
     }
 }

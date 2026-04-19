@@ -1,16 +1,16 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
     # ↑ building JDBC URL from individual Railway variables
     #   PGHOST     = monorail.proxy.rlwy.net
     #   PGPORT     = 12345
     #   PGDATABASE = railway
     #   Result: jdbc:postgresql://monorail.proxy.rlwy.net:12345/railway
 
-    username: ${PGUSER}
+    username: ${DB_USER}
     # ↑ postgres
 
-    password: ${PGPASSWORD}
+    password: ${DB_PASSWORD}
     # ↑ the auto-generated secure password
 
     driver-class-name: org.postgresql.Driver
@@ -34,3 +34,15 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 22MB
+
+# ✅ Groq — free API key at https://console.groq.com
+# Set GROQ_API_KEY in your environment or .env
+groq:
+  api-key: ${GROQ_API_KEY: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}
+  base-url: https://api.groq.com/openai
+  model: llama-3.3-70b-versatile
