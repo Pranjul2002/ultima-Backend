@@ -43,6 +43,6 @@ spring:
 # ✅ Groq — free API key at https://console.groq.com
 # Set GROQ_API_KEY in your environment or .env
 groq:
-  api-key: ${GROQ_API_KEY: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}
+  api-key: ${GROQ_API_KEY}
   base-url: https://api.groq.com/openai
   model: llama-3.3-70b-versatile
