@@ -42,7 +42,8 @@ public class SecurityConfig {
                                 "/api/auth/**",
                                 "/api/catalog/**",
                                 "/api/sources/**",
-                                "/api/chat/**"
+                                "/api/chat/**",
+                                "/api/assessment/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
