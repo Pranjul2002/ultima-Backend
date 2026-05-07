@@ -1,22 +1,46 @@
 spring:
   application:
-    name: ultima-backend
+    name: edutech-backend
 
-  # JPA settings shared across all environments
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate          # NEVER use "update" in production — use Flyway/Liquibase
     show-sql: false
+    open-in-view: false           # Avoid LazyInitializationException anti-pattern
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
+        format_sql: false
+        jdbc:
+          batch_size: 25          # Batch inserts for performance
 
-# Server port
+  # Jackson global settings
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
 server:
   port: ${PORT:8080}
+  shutdown: graceful              # Drain requests before stopping
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+  error:
+    include-message: never        # Never leak stack traces to clients
+    include-stacktrace: never
+    include-binding-errors: never
 
-# JWT config — values come from environment variables
+# JWT — always injected via environment variable, no hardcoded fallback in prod
 jwt:
   secret: ${JWT_SECRET:5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437}
   expiration: 86400000
+
+# Graceful shutdown timeout
+spring.lifecycle.timeout-per-shutdown-phase: 30s
+
+logging:
+  level:
+    root: WARN
+    com.edutech: INFO
+    org.springframework.security: WARN

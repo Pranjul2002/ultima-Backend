@@ -10,6 +10,7 @@ import com.edutech.edutechbackend.user.entity.User;
 import com.edutech.edutechbackend.user.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
@@ -17,29 +18,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * DashboardService
- * ────────────────────────────────────────────────────────────────────────────
- * Returns the full dashboard payload for the logged-in user.
- *
- * TESTS section (tests[]):
- *   • All free tests are always included (isPaid = false).
- *   • For each test the user has already attempted, we attach the latest
- *     attempt's score / status.  Unattempted tests get status = "pending".
- * ────────────────────────────────────────────────────────────────────────────
- */
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
 
-    private final UserProfileService   userProfileService;
-    private final TestRepository       testRepository;
+    private final UserProfileService    userProfileService;
+    private final TestRepository        testRepository;
     private final TestAttemptRepository testAttemptRepository;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("d MMM yyyy");
 
-    // ── public API ───────────────────────────────────────────────────────────
+    /**
+     * @Transactional is REQUIRED here.
+     *
+     * Why: Test.questions is a lazy @OneToMany collection. Even though we use
+     * JOIN FETCH in the repository query, the @Transactional annotation ensures
+     * Hibernate keeps the session open for the full duration of this method.
+     * Without it, accessing any lazy association after the repo call closes the
+     * session and throws LazyInitializationException → HTTP 500.
+     */
+    @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
 
         User user = userProfileService.getCurrentUser();
@@ -63,31 +62,22 @@ public class DashboardService {
                 .build();
     }
 
-    // ── private helpers ──────────────────────────────────────────────────────
+    // ── private helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Builds the list of TestItemDto shown in the "My Tests" dashboard tab.
-     *
-     * Logic:
-     *  1. Fetch all free tests from DB.
-     *  2. Fetch all attempts by this user and index them by testId.
-     *  3. For each free test:
-     *       - If an attempt exists → status = "passed" or "failed", score filled.
-     *       - Else                 → status = "pending", score = null.
-     */
     private List<TestItemDto> buildTestItems(User user) {
 
-        List<Test> freeTests = testRepository.findByIsPaidFalse();
+        // Uses JOIN FETCH — loads tests + questions in ONE query, no N+1, no lazy errors
+        List<Test> freeTests = testRepository.findFreeTestsWithQuestions();
 
-        // Index: testId → latest attempt (already ordered by submittedAt desc by the repo)
-        List<TestAttempt> attempts = testAttemptRepository
-                .findByStudentOrderBySubmittedAtDesc(user);
+        // Fetch all attempts by this user, indexed by testId for O(1) lookup
+        List<TestAttempt> attempts =
+                testAttemptRepository.findByStudentOrderBySubmittedAtDesc(user);
 
         Map<Long, TestAttempt> latestByTestId = attempts.stream()
                 .collect(Collectors.toMap(
                         a -> a.getTest().getId(),
                         a -> a,
-                        (first, second) -> first   // keep most recent
+                        (first, second) -> first  // keep most recent
                 ));
 
         return freeTests.stream()
@@ -100,13 +90,12 @@ public class DashboardService {
         String subjectName = test.getSubject() != null
                 ? test.getSubject().getName() : "";
 
-        // Total marks from questions (sum of marks per question)
+        // Sum marks from questions — safe because JOIN FETCH already loaded them
         int totalMarks = test.getQuestions().stream()
                 .mapToInt(q -> q.getMarks() != null ? q.getMarks() : 0)
                 .sum();
 
         if (attempt == null) {
-            // Not yet attempted
             return TestItemDto.builder()
                     .id(test.getId())
                     .title(test.getTitle())
@@ -119,11 +108,10 @@ public class DashboardService {
                     .build();
         }
 
-        // Attempted — determine pass/fail (pass threshold: >= 40 %)
-        int score      = attempt.getScore() != null ? attempt.getScore() : 0;
-        int totalM     = attempt.getTotalMarks() != null ? attempt.getTotalMarks() : totalMarks;
-        double pct     = totalM > 0 ? (double) score / totalM * 100 : 0;
-        String status  = pct >= 40.0 ? "passed" : "failed";
+        int score     = attempt.getScore() != null ? attempt.getScore() : 0;
+        int totalM    = attempt.getTotalMarks() != null ? attempt.getTotalMarks() : totalMarks;
+        double pct    = totalM > 0 ? (double) score / totalM * 100 : 0;
+        String status = pct >= 40.0 ? "passed" : "failed";
 
         String date = attempt.getSubmittedAt() != null
                 ? attempt.getSubmittedAt().format(DATE_FMT) : null;
