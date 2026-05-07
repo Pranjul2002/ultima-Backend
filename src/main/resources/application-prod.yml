@@ -10,13 +10,15 @@ spring:
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
-      # Validate connections before use — catches stale connections after DB restarts
       connection-test-query: SELECT 1
       keepalive-time: 60000
 
   jpa:
     hibernate:
-      ddl-auto: validate          # Safe: never mutates schema automatically
+      # ⚠️  FIRST DEPLOY on a fresh database: use "create" to build all tables
+      # ✅  AFTER first deploy succeeds: change this to "validate" and redeploy
+      # ❌  NEVER use "update" in production — it can silently corrupt data
+      ddl-auto: create
     show-sql: false
     properties:
       hibernate:
@@ -28,7 +30,7 @@ spring:
       max-request-size: 22MB
 
 groq:
-  api-key: ${GROQ_API_KEY}       # Required — set in Render/Railway dashboard
+  api-key: ${GROQ_API_KEY}
   base-url: https://api.groq.com/openai
   model: llama-3.3-70b-versatile
 
