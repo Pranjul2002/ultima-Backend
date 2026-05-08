@@ -22,21 +22,21 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DashboardService {
 
-    private final UserProfileService    userProfileService;
-    private final TestRepository        testRepository;
-    private final TestAttemptRepository testAttemptRepository;
+    private final UserProfileService     userProfileService;
+    private final TestRepository         testRepository;
+    private final TestAttemptRepository  testAttemptRepository;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("d MMM yyyy");
 
     /**
-     * @Transactional is REQUIRED here.
+     * @Transactional(readOnly=true) keeps ONE Hibernate session open for
+     * the entire method — required so that any lazy associations accessed
+     * inside mappers don't hit a "session closed" error.
      *
-     * Why: Test.questions is a lazy @OneToMany collection. Even though we use
-     * JOIN FETCH in the repository query, the @Transactional annotation ensures
-     * Hibernate keeps the session open for the full duration of this method.
-     * Without it, accessing any lazy association after the repo call closes the
-     * session and throws LazyInitializationException → HTTP 500.
+     * UserProfileService.getCurrentUser() re-fetches the User from the DB
+     * (not the detached SecurityContext principal), so all lazy fields on
+     * the User are accessible within this same session.
      */
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
@@ -66,10 +66,10 @@ public class DashboardService {
 
     private List<TestItemDto> buildTestItems(User user) {
 
-        // Uses JOIN FETCH — loads tests + questions in ONE query, no N+1, no lazy errors
+        // JOIN FETCH loads tests + questions + subject in a single SQL query.
+        // No N+1, no lazy-load after session close.
         List<Test> freeTests = testRepository.findFreeTestsWithQuestions();
 
-        // Fetch all attempts by this user, indexed by testId for O(1) lookup
         List<TestAttempt> attempts =
                 testAttemptRepository.findByStudentOrderBySubmittedAtDesc(user);
 
@@ -77,7 +77,7 @@ public class DashboardService {
                 .collect(Collectors.toMap(
                         a -> a.getTest().getId(),
                         a -> a,
-                        (first, second) -> first  // keep most recent
+                        (first, second) -> first   // keep most recent
                 ));
 
         return freeTests.stream()
@@ -90,7 +90,7 @@ public class DashboardService {
         String subjectName = test.getSubject() != null
                 ? test.getSubject().getName() : "";
 
-        // Sum marks from questions — safe because JOIN FETCH already loaded them
+        // Safe — questions already loaded via JOIN FETCH
         int totalMarks = test.getQuestions().stream()
                 .mapToInt(q -> q.getMarks() != null ? q.getMarks() : 0)
                 .sum();
@@ -112,8 +112,7 @@ public class DashboardService {
         int totalM    = attempt.getTotalMarks() != null ? attempt.getTotalMarks() : totalMarks;
         double pct    = totalM > 0 ? (double) score / totalM * 100 : 0;
         String status = pct >= 40.0 ? "passed" : "failed";
-
-        String date = attempt.getSubmittedAt() != null
+        String date   = attempt.getSubmittedAt() != null
                 ? attempt.getSubmittedAt().format(DATE_FMT) : null;
 
         return TestItemDto.builder()

@@ -11,33 +11,32 @@ import java.util.List;
 public interface TestRepository extends JpaRepository<Test, Long> {
 
     /**
-     * Fetch all free tests WITH their questions in a single JOIN query.
+     * Loads free tests + their questions + subject in ONE SQL query via JOIN FETCH.
      *
-     * Why: Test.questions is a @OneToMany with default LAZY fetch.
-     * DashboardService calls test.getQuestions() to sum marks — if we use the
-     * plain findByIsPaidFalse(), Hibernate fires N separate SELECT queries for
-     * questions (one per test) AFTER the session may be closed, causing
-     * LazyInitializationException → HTTP 500.
+     * Without this, DashboardService calling test.getQuestions() fires N separate
+     * lazy SELECTs after the Hibernate session is closed → LazyInitializationException → 500.
      *
-     * JOIN FETCH loads everything in one query, eliminating the N+1 problem
-     * and the session-closed error simultaneously.
+     * DISTINCT prevents duplicate Test rows caused by the one-to-many join.
      */
-    @Query("SELECT DISTINCT t FROM Test t LEFT JOIN FETCH t.questions WHERE t.isPaid = false")
+    @Query("""
+        SELECT DISTINCT t FROM Test t
+        LEFT JOIN FETCH t.questions
+        LEFT JOIN FETCH t.subject
+        WHERE t.isPaid = false
+        """)
     List<Test> findFreeTestsWithQuestions();
 
-    /**
-     * Fetch all paid tests with questions eagerly (used by test listing endpoints).
-     */
-    @Query("SELECT DISTINCT t FROM Test t LEFT JOIN FETCH t.questions WHERE t.isPaid = true")
+    @Query("""
+        SELECT DISTINCT t FROM Test t
+        LEFT JOIN FETCH t.questions
+        LEFT JOIN FETCH t.subject
+        WHERE t.isPaid = true
+        """)
     List<Test> findPaidTestsWithQuestions();
 
-    // ── Plain finders (safe to use where questions are NOT accessed) ──────────
-
+    // Plain finders — safe to use where questions/subject are NOT accessed
     List<Test> findByIsPaidFalse();
-
     List<Test> findByIsPaidTrue();
-
     List<Test> findByIsPaidTrueAndMentor(User mentor);
-
     List<Test> findBySubject(Subject subject);
 }
