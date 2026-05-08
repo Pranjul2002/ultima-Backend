@@ -30,15 +30,23 @@ public class DashboardService {
             DateTimeFormatter.ofPattern("d MMM yyyy");
 
     /**
-     * @Transactional(readOnly=true) keeps ONE Hibernate session open for
-     * the entire method — required so that any lazy associations accessed
-     * inside mappers don't hit a "session closed" error.
+     * FIX: Changed from @Transactional(readOnly=true) to plain @Transactional.
      *
-     * UserProfileService.getCurrentUser() re-fetches the User from the DB
-     * (not the detached SecurityContext principal), so all lazy fields on
-     * the User are accessible within this same session.
+     * Why: getDashboard() calls userProfileService.getSettings(), which is
+     * @Transactional (writable) and calls getOrCreateSettings() — which does
+     * a DB save() for first-time users who have no settings row yet.
+     *
+     * Spring's default propagation is REQUIRED, so getSettings() participates
+     * in the outer transaction. If the outer tx is readOnly=true, the inner
+     * save() throws TransactionSystemException → HTTP 500.
+     *
+     * Using plain @Transactional (readOnly=false) here allows the inner save()
+     * to proceed. For users who already have a settings row, this is a no-op.
+     *
+     * Tests are loaded with JOIN FETCH (findFreeTestsWithQuestions) so all
+     * lazy collections are populated in one SQL query — no N+1, no lazy errors.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public DashboardResponse getDashboard() {
 
         User user = userProfileService.getCurrentUser();
@@ -62,12 +70,8 @@ public class DashboardService {
                 .build();
     }
 
-    // ── private helpers ───────────────────────────────────────────────────────
-
     private List<TestItemDto> buildTestItems(User user) {
-
-        // JOIN FETCH loads tests + questions + subject in a single SQL query.
-        // No N+1, no lazy-load after session close.
+        // JOIN FETCH: loads tests + questions + subject in one SQL query
         List<Test> freeTests = testRepository.findFreeTestsWithQuestions();
 
         List<TestAttempt> attempts =
@@ -77,7 +81,7 @@ public class DashboardService {
                 .collect(Collectors.toMap(
                         a -> a.getTest().getId(),
                         a -> a,
-                        (first, second) -> first   // keep most recent
+                        (first, second) -> first
                 ));
 
         return freeTests.stream()
@@ -86,11 +90,8 @@ public class DashboardService {
     }
 
     private TestItemDto toTestItemDto(Test test, TestAttempt attempt) {
+        String subjectName = test.getSubject() != null ? test.getSubject().getName() : "";
 
-        String subjectName = test.getSubject() != null
-                ? test.getSubject().getName() : "";
-
-        // Safe — questions already loaded via JOIN FETCH
         int totalMarks = test.getQuestions().stream()
                 .mapToInt(q -> q.getMarks() != null ? q.getMarks() : 0)
                 .sum();
@@ -100,17 +101,16 @@ public class DashboardService {
                     .id(test.getId())
                     .title(test.getTitle())
                     .subject(subjectName)
-                    .date(null)
-                    .score(null)
+                    .date(null).score(null)
                     .total(totalMarks > 0 ? totalMarks : test.getQuestions().size() * 4)
                     .duration(null)
                     .status("pending")
                     .build();
         }
 
-        int score     = attempt.getScore() != null ? attempt.getScore() : 0;
-        int totalM    = attempt.getTotalMarks() != null ? attempt.getTotalMarks() : totalMarks;
-        double pct    = totalM > 0 ? (double) score / totalM * 100 : 0;
+        int score    = attempt.getScore() != null ? attempt.getScore() : 0;
+        int totalM   = attempt.getTotalMarks() != null ? attempt.getTotalMarks() : totalMarks;
+        double pct   = totalM > 0 ? (double) score / totalM * 100 : 0;
         String status = pct >= 40.0 ? "passed" : "failed";
         String date   = attempt.getSubmittedAt() != null
                 ? attempt.getSubmittedAt().format(DATE_FMT) : null;
@@ -119,8 +119,7 @@ public class DashboardService {
                 .id(test.getId())
                 .title(test.getTitle())
                 .subject(subjectName)
-                .date(date)
-                .score(score)
+                .date(date).score(score)
                 .total(totalM > 0 ? totalM : test.getQuestions().size() * 4)
                 .duration(null)
                 .status(status)

@@ -23,25 +23,15 @@ public class UserProfileService {
     private final UserSettingsRepository userSettingsRepository;
 
     /**
-     * Returns a FRESH copy of the current user loaded from the DB within
-     * the active transaction.
-     *
-     * Why not just cast the SecurityContext principal?
-     *   The User stored in the SecurityContext was fetched during JWT filter
-     *   execution (a different, already-closed Hibernate session). Using that
-     *   detached entity and accessing its lazy collections (subjects, settings)
-     *   causes LazyInitializationException → HTTP 500.
-     *
-     *   Re-fetching by ID keeps everything in the current transaction's session.
+     * Returns a fresh User loaded from the DB in the caller's transaction.
+     * NEVER uses the SecurityContext principal directly for DB operations —
+     * that entity is detached (fetched in a closed JwtAuthFilter session).
      */
     public User getCurrentUser() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
         if (!(principal instanceof User user)) {
             throw new RuntimeException("Unauthorized");
         }
-
-        // Re-fetch from DB — never use the detached principal for lazy associations
         return userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
     }
@@ -54,18 +44,25 @@ public class UserProfileService {
     @Transactional
     public UserProfileResponse updateProfile(UpdateProfileRequest request) {
         User user = getCurrentUser();
-
         if (request.getName() != null)     user.setUsername(request.getName().trim());
         if (request.getEmail() != null)    user.setEmail(request.getEmail().trim().toLowerCase());
         if (request.getBio() != null)      user.setBio(request.getBio());
         if (request.getLocation() != null) user.setLocation(request.getLocation());
         if (request.getWebsite() != null)  user.setWebsite(request.getWebsite());
-
         userRepository.save(user);
         return mapProfile(user);
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * FIX: was @Transactional(readOnly = true) but called getOrCreateSettings()
+     * which does userSettingsRepository.save() when no row exists yet.
+     * A WRITE inside a readOnly transaction throws TransactionSystemException → HTTP 500.
+     *
+     * Changed to plain @Transactional so the save is allowed.
+     * For users who already have a settings row, this is a no-op write (no flush needed)
+     * and has negligible performance difference vs readOnly.
+     */
+    @Transactional
     public UserSettingsResponse getSettings() {
         User user = getCurrentUser();
         UserSettings settings = getOrCreateSettings(user);
@@ -98,13 +95,16 @@ public class UserProfileService {
             settings.setDailyGoal(request.getPreferences().getDailyGoal());
             settings.setRecoveryEmail(request.getPreferences().getRecoveryEmail());
         }
-
         userSettingsRepository.save(settings);
         return mapSettings(settings);
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
 
+    /**
+     * Must be called inside a writable @Transactional method — it performs a
+     * save() when no settings row exists for the user yet.
+     */
     private UserSettings getOrCreateSettings(User user) {
         return userSettingsRepository.findByUserId(user.getId())
                 .orElseGet(() -> userSettingsRepository.save(
@@ -132,8 +132,7 @@ public class UserProfileService {
                 .skills(Collections.emptyList())
                 .certificates(Collections.emptyList())
                 .metrics(UserProfileResponse.MetricsDto.builder()
-                        .courses(0).tests(0).badges(0)
-                        .build())
+                        .courses(0).tests(0).badges(0).build())
                 .build();
     }
 
