@@ -15,10 +15,10 @@ spring:
 
   jpa:
     hibernate:
-      # ⚠️  FIRST DEPLOY on a fresh database: use "create" to build all tables
-      # ✅  AFTER first deploy succeeds: change this to "validate" and redeploy
-      # ❌  NEVER use "update" in production — it can silently corrupt data
-      ddl-auto: create
+      # ✅ "update" — adds new columns/tables but NEVER drops existing data.
+      # Safe for active development when schema changes are additive.
+      # Switch to "validate" once your schema is stable and you adopt Flyway.
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
