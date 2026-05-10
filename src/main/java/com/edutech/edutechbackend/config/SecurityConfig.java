@@ -126,7 +126,7 @@ public class SecurityConfig {
         // Explicit origin allow-list — never use "*" with credentials:true
         config.setAllowedOrigins(List.of(
                 "http://localhost:3000",
-                frontendUrl               // Injected via FRONTEND_URL env var
+                "https://edu-tech-rouge.vercel.app"               // Injected via FRONTEND_URL env var
         ));
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
