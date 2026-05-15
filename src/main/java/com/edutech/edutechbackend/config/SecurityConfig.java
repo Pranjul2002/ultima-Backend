@@ -22,15 +22,30 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 /**
- * Production-hardened SecurityConfig
+ * SecurityConfig — HttpOnly cookie edition
  * ─────────────────────────────────────────────────────────────────────────────
- * Changes from dev version:
- *  1. Security headers (HSTS, CSP, Referrer-Policy, X-Frame-Options, etc.)
- *  2. CORS limited to exact allowed origins — no wildcard fallback
- *  3. Explicit HTTP-method allow-list in CORS (no implicit OPTIONS passthrough)
- *  4. @EnableMethodSecurity for @PreAuthorize support on endpoints
- *  5. CSRF disabled only because JWT + HttpOnly cookie + SameSite=None is used;
- *     documented here for future auditors
+ * Key changes from the Bearer-token version:
+ *
+ *  1. allowCredentials(true) is REQUIRED — without it the browser strips the
+ *     Set-Cookie header and the auth cookie is never stored.
+ *
+ *  2. allowedOrigins must be an EXPLICIT list (never "*") when credentials
+ *     are enabled. Wildcards + credentials are blocked by the CORS spec.
+ *
+ *  3. "Set-Cookie" is added to exposedHeaders so the browser can read the
+ *     header in preflight responses (some older browsers need this).
+ *
+ *  4. CSRF: still disabled. Rationale:
+ *       - SameSite=None means the cookie IS sent on cross-origin requests,
+ *         so SameSite alone does NOT prevent CSRF here.
+ *       - Our frontend is a separate origin (Vercel), so classic CSRF via
+ *         a same-site form post is not a threat vector.
+ *       - For full CSRF protection on a cross-origin cookie setup, use the
+ *         "double-submit cookie" pattern or a custom header (e.g. X-Requested-With).
+ *       - Simpler alternative: add a CSRF token in the login response body
+ *         and require it as a header on state-changing requests.
+ *
+ *  5. All other security headers are unchanged (HSTS, CSP, X-Frame, etc.).
  */
 @Configuration
 @RequiredArgsConstructor
@@ -39,47 +54,31 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
 
-    /**
-     * Primary frontend origin (e.g., https://your-app.vercel.app).
-     * Set FRONTEND_URL in your Render / Railway environment variables.
-     * Falls back to localhost for local dev only.
-     */
     @Value("${FRONTEND_URL:http://localhost:3000}")
     private String frontendUrl;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // ── CSRF: disabled intentionally ─────────────────────────────────
-                // Reason: auth uses JWT stored in HttpOnly cookies with SameSite=None;Secure.
-                // SameSite=None prevents CSRF for cross-origin requests. If you ever switch
-                // to same-site deployment, re-enable CSRF.
+                // CSRF disabled — see class-level Javadoc for reasoning.
                 .csrf(AbstractHttpConfigurer::disable)
 
-                // ── CORS ─────────────────────────────────────────────────────────
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-                // ── Session: stateless JWT ────────────────────────────────────────
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
-                // ── Security headers ──────────────────────────────────────────────
                 .headers(headers -> headers
-                        // Strict-Transport-Security: max-age=1 year, includeSubDomains
                         .httpStrictTransportSecurity(hsts -> hsts
                                 .includeSubDomains(true)
                                 .maxAgeInSeconds(31536000)
                         )
-                        // X-Frame-Options: DENY — prevents clickjacking
                         .frameOptions(frame -> frame.deny())
-                        // X-Content-Type-Options: nosniff
                         .contentTypeOptions(cto -> {})
-                        // Referrer-Policy
                         .referrerPolicy(referrer ->
                                 referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)
                         )
-                        // Content-Security-Policy — tighten to your specific needs
                         .contentSecurityPolicy(csp ->
                                 csp.policyDirectives(
                                         "default-src 'self'; " +
@@ -93,27 +92,28 @@ public class SecurityConfig {
                         )
                 )
 
-                // ── Authorization rules ───────────────────────────────────────────
                 .authorizeHttpRequests(auth -> auth
-                        // Health / readiness probes (Render, Railway, K8s)
+                        // Health probes
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
 
-                        // Public auth endpoints
+                        // Auth endpoints — public (login sets the cookie, logout clears it)
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // Public catalog — read-only browsing without login
+                        // Public catalog — read-only, no login required
                         .requestMatchers(HttpMethod.GET, "/api/catalog/**").permitAll()
 
-                        // Upskilling public endpoints (source upload, chat, assessment)
+                        // Public competitive exam test listing — read-only, no login required
+                        .requestMatchers(HttpMethod.GET, "/api/prep/**").permitAll()
+
+                        // Upskilling public endpoints
                         .requestMatchers("/api/sources/**").permitAll()
                         .requestMatchers("/api/chat/**").permitAll()
                         .requestMatchers("/api/assessment/**").permitAll()
 
-                        // Everything else requires a valid JWT
+                        // Everything else requires a valid session cookie
                         .anyRequest().authenticated()
                 )
 
-                // ── JWT filter ────────────────────────────────────────────────────
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -123,28 +123,29 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Explicit origin allow-list — never use "*" with credentials:true
+        // Explicit origin list — "*" is forbidden when allowCredentials = true.
         config.setAllowedOrigins(List.of(
                 "http://localhost:3000",
-                "https://edu-tech-rouge.vercel.app"               // Injected via FRONTEND_URL env var
+                frontendUrl
         ));
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         config.setAllowedHeaders(List.of("Content-Type", "Authorization", "X-Requested-With"));
-        config.setExposedHeaders(List.of("X-Total-Count")); // expose pagination headers if used
-        config.setAllowCredentials(true);   // required for HttpOnly cookie transport
-        config.setMaxAge(3600L);            // preflight cache: 1 hour
+
+        // Expose Set-Cookie so the browser can process the auth cookie on login.
+        config.setExposedHeaders(List.of("Set-Cookie", "X-Total-Count"));
+
+        // REQUIRED for HttpOnly cookie auth — without this the browser strips
+        // the Set-Cookie response header and the cookie is never stored.
+        config.setAllowCredentials(true);
+
+        config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
     }
 
-    /**
-     * BCrypt with strength 12 (production default).
-     * Strength 10 (Spring default) is fine for most apps; 12 adds ~4× hashing time.
-     * Adjust based on your server hardware and acceptable login latency.
-     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);

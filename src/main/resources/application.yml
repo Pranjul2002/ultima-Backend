@@ -44,3 +44,36 @@ logging:
     root: WARN
     com.edutech: INFO
     org.springframework.security: WARN
+
+
+# Cookie settings for HttpOnly JWT auth.
+# These values are read by AuthController.
+#
+# cookie.secure   — set to "false" locally (HTTP), "true" in prod (HTTPS).
+#                   Override via env var: COOKIE_SECURE=false (dev) / true (prod)
+# cookie.max-age  — seconds until the cookie expires.
+#                   Should match jwt.expiration (ms) / 1000.
+#                   Default 86400 = 24 hours.
+
+cookie:
+  secure: ${COOKIE_SECURE:true}
+  max-age: ${COOKIE_MAX_AGE:86400}
+
+
+# ── application-dev.yml override ─────────────────────────────────────────────
+# Add this to application-dev.yml so the cookie works over plain HTTP locally:
+#
+# cookie:
+#   secure: false
+
+
+# ── Environment variables summary ─────────────────────────────────────────────
+#
+# Production (Render / Railway):
+#   COOKIE_SECURE=true          (default — HTTPS only)
+#   COOKIE_MAX_AGE=86400        (optional — 24 h default)
+#   FRONTEND_URL=https://your-app.vercel.app
+#
+# Local dev:
+#   COOKIE_SECURE=false         (HTTP, no SSL)
+#   FRONTEND_URL=http://localhost:3000  (default)
