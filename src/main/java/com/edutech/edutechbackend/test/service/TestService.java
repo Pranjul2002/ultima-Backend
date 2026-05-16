@@ -15,6 +15,8 @@ import com.edutech.edutechbackend.test.dto.TestResponse;
 import com.edutech.edutechbackend.test.entity.Test;
 import com.edutech.edutechbackend.test.enums.TestTypeFilter;
 import com.edutech.edutechbackend.test.repository.TestRepository;
+import com.edutech.edutechbackend.question.dto.ReviewQuestionResponse;
+import com.edutech.edutechbackend.question.dto.TestReviewResponse;
 import com.edutech.edutechbackend.testattempt.dto.TestAttemptResponse;
 import com.edutech.edutechbackend.testattempt.entity.TestAttempt;
 import com.edutech.edutechbackend.testattempt.repository.TestAttemptRepository;
@@ -23,6 +25,7 @@ import com.edutech.edutechbackend.user.enums.Role;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -149,6 +152,7 @@ public class TestService {
                 .toList();
     }
 
+    @Transactional
     public SubmitTestResponse submitTest(User user, Long testId, SubmitTestRequest request) {
 
         Test test = testRepository.findById(testId)
@@ -246,6 +250,48 @@ public class TestService {
                         .submittedAt(attempt.getSubmittedAt())
                         .build())
                 .toList();
+    }
+
+    public TestReviewResponse getTestReview(User user, Long testId) {
+
+        Test test = testRepository.findById(testId)
+                .orElseThrow(() -> new RuntimeException("Test not found"));
+
+        TestAttempt attempt = testAttemptRepository.findByStudentAndTest(user, test)
+                .orElseThrow(() -> new RuntimeException("No completed attempt found for this test"));
+
+        List<Question> questions = questionRepository.findByTestId(testId);
+
+        TestAttemptResponse attemptDto = TestAttemptResponse.builder()
+                .attemptId(attempt.getId())
+                .testId(testId)
+                .testTitle(test.getTitle())
+                .totalQuestions(attempt.getTotalQuestions())
+                .attemptedQuestions(attempt.getAttemptedQuestions())
+                .correctAnswers(attempt.getCorrectAnswers())
+                .wrongAnswers(attempt.getWrongAnswers())
+                .score(attempt.getScore())
+                .totalMarks(attempt.getTotalMarks())
+                .submittedAt(attempt.getSubmittedAt())
+                .build();
+
+        List<ReviewQuestionResponse> questionDtos = questions.stream()
+                .map(q -> ReviewQuestionResponse.builder()
+                        .id(q.getId())
+                        .questionText(q.getQuestionText())
+                        .optionA(q.getOptionA())
+                        .optionB(q.getOptionB())
+                        .optionC(q.getOptionC())
+                        .optionD(q.getOptionD())
+                        .marks(q.getMarks())
+                        .correctAnswer(q.getCorrectAnswer())   // ← exposed only here
+                        .build())
+                .toList();
+
+        return TestReviewResponse.builder()
+                .attempt(attemptDto)
+                .questions(questionDtos)
+                .build();
     }
 
     private TestResponse mapToTestResponse(Test test) {

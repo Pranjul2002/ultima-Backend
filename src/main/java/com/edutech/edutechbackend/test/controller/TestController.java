@@ -2,6 +2,7 @@ package com.edutech.edutechbackend.test.controller;
 
 import com.edutech.edutechbackend.question.dto.StudentQuestionResponse;
 import com.edutech.edutechbackend.question.dto.SubmitTestRequest;
+import com.edutech.edutechbackend.question.dto.TestReviewResponse;
 import com.edutech.edutechbackend.question.dto.SubmitTestResponse;
 import com.edutech.edutechbackend.test.dto.TestCreateRequest;
 import com.edutech.edutechbackend.test.dto.TestResponse;
@@ -64,6 +65,16 @@ public class TestController {
                 .getPrincipal();
 
         return testService.submitTest(user, testId, request);
+    }
+
+    @GetMapping("/{testId}/review")
+    public TestReviewResponse getTestReview(@PathVariable Long testId) {
+        User user = (User) SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        return testService.getTestReview(user, testId);
     }
 
     @GetMapping("/my-attempts")
